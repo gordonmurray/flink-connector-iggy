@@ -1,22 +1,36 @@
 # flink-connector-iggy
 
-A Flink 1.18 Source Connector for **Apache Iggy (v0.7.0)** with Flink SQL support,
+A Flink Source Connector for **Apache Iggy (v0.7.0)** with Flink SQL support,
 metrics, and TLS.
 
-This project provides a bridge between the Rust-native Iggy event store and the
-Apache Flink stream processing ecosystem, targeting Flink 1.18 on Java 17.
+Tested on **Flink 1.18.1** and **Flink 1.20.3** (LTS). Built on the FLIP-27
+Source v2 API, which is binary compatible across Flink 1.18 → 1.20.
+
+---
+
+## Compatibility
+
+| Component | Tested Versions |
+|---|---|
+| **Flink** | 1.18.1, 1.20.3 (LTS) |
+| **Iggy Server** | 0.7.0 |
+| **Iggy Java SDK** | `org.apache.iggy:iggy:0.7.0` |
+| **Java** | 17+ |
+
+The connector JAR is compiled with Java 17. Use a `-java17` Flink Docker image
+(e.g., `flink:1.20.3-java17`) or ensure your Flink cluster runs Java 17+.
 
 ---
 
 ## Why Build Our Own?
 
 An official Flink connector exists at `org.apache.iggy:flink-connector:0.7.0`,
-but it has hard blockers for our use case:
+but it has hard blockers:
 
 | Issue | Impact |
 |---|---|
-| Targets **Flink 2.1.1** (uses `WriterInitContext`) | Binary incompatible with Flink 1.18 |
-| Jackson 3.x dependency | Classpath conflict with Flink 1.18's bundled Jackson 2.x |
+| Targets **Flink 2.1.1** (uses `WriterInitContext`) | Binary incompatible with Flink 1.x |
+| Jackson 3.x dependency | Classpath conflict with Flink 1.x's bundled Jackson 2.x |
 | `autoCommit = true` in poll loop | At-most-once on failure — offset advances before checkpoint |
 | `isAvailable()` always returns completed | Busy-polls, burns CPU when idle |
 | No Flink SQL support | No `DynamicTableSourceFactory` |
@@ -28,25 +42,17 @@ This connector addresses all of the above.
 
 ## Technical Features
 
-- **Flink Source API (v2)**: Built on the FLIP-27 `Source` interface (not legacy `SourceFunction`).
+- **Flink Source API (v2)**: FLIP-27 `Source` interface, compatible across Flink 1.18–1.20.
 - **Flink SQL**: `CREATE TABLE ... WITH ('connector' = 'iggy')` via `DynamicTableSourceFactory`.
-- **Flink 1.18 compatible**: No Flink 2.x API dependencies.
 - **Flink metrics**: `numRecordsIn` and `numBytesIn` counters per reader.
 - **TLS support**: Optional TLS via `'tls' = 'true'` and `'tls.certificate' = '/path'`.
 - **Generic source**: `IggySource<T>` supports any output type via `IggyDeserializationSchema<T>`.
-- **Multi-partition**: Discovers partitions at startup and periodically (every 60s) for runtime-added partitions. Round-robin assignment to parallel readers.
+- **Multi-partition**: Discovers partitions at startup and periodically (configurable) for runtime-added partitions. Round-robin assignment to parallel readers.
 - **Correct checkpoint semantics**: Polls with explicit offsets, `autoCommit = false`.
-- **Non-blocking backoff**: Empty polls trigger a 100ms delayed retry instead of hanging.
+- **Non-blocking backoff**: Empty polls trigger a configurable delayed retry instead of hanging.
 - **Fair polling**: Round-robin across assigned splits prevents partition starvation.
+- **Transient error handling**: TCP failures log a warning and skip to the next split instead of killing the reader.
 - **TCP binary protocol**: High-throughput connection via `IggyTcpClient`.
-
----
-
-## Status: All Phases Complete (2026-03-18)
-
-Production-ready source connector. 11/11 tests pass against a live Iggy 0.7.0
-instance with the `crypto/prices` topic (~430K messages, 3 partitions).
-Testcontainers integration test available for self-contained CI.
 
 ---
 
@@ -55,6 +61,8 @@ Testcontainers integration test available for self-contained CI.
 ### Flink SQL
 
 ```sql
+SET 'pipeline.jars' = 'file:///opt/flink/lib/flink-connector-iggy.jar';
+
 CREATE TABLE iggy_prices (
   pair STRING,
   price STRING,
@@ -64,6 +72,7 @@ CREATE TABLE iggy_prices (
   `time` STRING
 ) WITH (
   'connector' = 'iggy',
+  'host'      = 'iggy',
   'stream'    = 'crypto',
   'topic'     = 'prices',
   'format'    = 'json'
@@ -85,6 +94,9 @@ Connection properties (with defaults):
 | `password` | `iggy` | No |
 | `tls` | `false` | No |
 | `tls.certificate` | — | No |
+
+**Note:** When running Flink in Docker, set `'host'` to the Iggy container name
+(e.g., `'host' = 'iggy'`), not `localhost`.
 
 ### DataStream API (raw bytes)
 
@@ -112,16 +124,15 @@ IggySource<MyPojo> source = IggySource.<MyPojo>builder()
 
 | Class | Role |
 |---|---|
-| `IggySource<T>` | Generic entry point. Implements `Source<T, IggySplit, IggyEnumeratorState>`. Supports TLS config. |
+| `IggySource<T>` | Generic entry point. Builder pattern with configurable batch size, consumer ID, poll backoff, and discovery interval. |
+| `IggyConnectionConfig` | Immutable connection config record shared by reader and enumerator. Single `connect()` factory method. |
 | `IggyDeserializationSchema<T>` | Functional interface for converting `byte[]` to `T`. |
 | `IggyDynamicTableFactory` | SPI factory for Flink SQL `'connector' = 'iggy'`. |
 | `IggyDynamicTableSource` | Creates `IggySource<RowData>` with format-based deserialization. |
-| `IggySplitEnumerator` | Discovers partitions via `getTopic()`, assigns splits round-robin. TLS-aware. |
-| `IggyEnumeratorState` | Checkpoint state holding assigned + unassigned split lists. |
-| `IggyEnumeratorStateSerializer` | Binary serializer for enumerator checkpoint state. |
-| `IggySourceReader<T>` | Polls messages, deserializes, tracks offsets. Emits Flink metrics. TLS-aware. |
+| `IggySplitEnumerator` | Discovers partitions, assigns splits round-robin, periodic re-scan. |
+| `IggyEnumeratorState` | Checkpoint state record holding assigned + unassigned split lists. |
+| `IggySourceReader<T>` | Round-robin polling, transient error handling, Flink metrics. |
 | `IggySplit` | Single Iggy partition with mutable offset tracking. |
-| `IggySplitSerializer` | Binary serialization of splits for Flink checkpoints. |
 
 ---
 
@@ -138,10 +149,38 @@ docker run --rm -v "$(pwd)":/build -w /build \
 docker run --rm --network host -e IGGY_HOST=localhost \
   -v "$(pwd)":/build -w /build \
   maven:3.9-eclipse-temurin-17 mvn -B test
-
-# Run Testcontainers test (requires Docker-on-host, not DinD)
-# Set TESTCONTAINERS=true and mount Docker socket
 ```
 
 Produces a shaded JAR at `target/flink-connector-iggy-0.1.0-SNAPSHOT.jar` (12 MB)
 that bundles the Iggy SDK + Netty but excludes Flink runtime classes.
+
+### Deployment
+
+Mount the JAR into your Flink TaskManager and JobManager:
+
+```yaml
+# docker-compose.yml
+jobmanager:
+  image: flink:1.20.3-java17
+  volumes:
+    - ./jars/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar:ro
+
+taskmanager:
+  image: flink:1.20.3-java17
+  volumes:
+    - ./jars/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar:ro
+```
+
+---
+
+## SDK Note
+
+The Iggy Java SDK artifact was renamed in 0.7.0:
+- **Old**: `org.apache.iggy:iggy-java-sdk` (deprecated)
+- **New**: `org.apache.iggy:iggy:0.7.0`
+
+---
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
