@@ -1,0 +1,13 @@
+# Build output
+target/
+dependency-reduced-pom.xml
+
+# IDE
+*.iml
+.idea/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
