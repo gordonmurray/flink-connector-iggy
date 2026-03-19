@@ -120,6 +120,15 @@ IggySource<MyPojo> source = IggySource.<MyPojo>builder()
 
 ---
 
+## Working Example
+
+A ready-to-run Docker Compose quickstart is available at
+[flink-iggy-quickstart](https://github.com/gordonmurray/flink-iggy-quickstart).
+It spins up Iggy, a Python producer, and a Flink cluster with this connector
+pre-loaded so you can try Flink SQL against a live Iggy stream in under a minute.
+
+---
+
 ## Architecture
 
 | Class | Role |
