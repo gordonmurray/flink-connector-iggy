@@ -170,17 +170,3 @@ taskmanager:
   volumes:
     - ./jars/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar:ro
 ```
-
----
-
-## SDK Note
-
-The Iggy Java SDK artifact was renamed in 0.7.0:
-- **Old**: `org.apache.iggy:iggy-java-sdk` (deprecated)
-- **New**: `org.apache.iggy:iggy:0.7.0`
-
----
-
-## License
-
-Licensed under the [Apache License, Version 2.0](LICENSE).
