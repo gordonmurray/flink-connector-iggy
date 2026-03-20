@@ -37,6 +37,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
     private final String topicId;
     private final Duration discoveryInterval;
     private final Duration pollBackoff;
+    private final Duration pollTimeout;
     private final int batchSize;
     private final long consumerId;
     private final IggyDeserializationSchema<T> deserializer;
@@ -48,6 +49,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         this.topicId = Preconditions.checkNotNull(b.topicId, "Topic must be set");
         this.discoveryInterval = Preconditions.checkNotNull(b.discoveryInterval);
         this.pollBackoff = Preconditions.checkNotNull(b.pollBackoff);
+        this.pollTimeout = Preconditions.checkNotNull(b.pollTimeout);
         this.batchSize = b.batchSize;
         this.consumerId = b.consumerId;
         this.deserializer = Preconditions.checkNotNull(b.deserializer, "Deserializer must be set");
@@ -75,7 +77,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
     public SourceReader<T, IggySplit> createReader(SourceReaderContext readerContext) {
         return new IggySourceReader<>(
                 readerContext, connectionConfig, pollBackoff.toMillis(),
-                batchSize, consumerId, deserializer);
+                pollTimeout.toMillis(), batchSize, consumerId, deserializer);
     }
 
     @Override
@@ -117,6 +119,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         private String tlsCertificatePath;
         private Duration discoveryInterval = Duration.ofMinutes(1);
         private Duration pollBackoff = Duration.ofMillis(100);
+        private Duration pollTimeout = Duration.ofSeconds(5);
         private int batchSize = 100;
         private long consumerId = 1L;
         private IggyDeserializationSchema<T> deserializer;
@@ -135,6 +138,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         public Builder<T> setTlsCertificate(String path) { this.tlsCertificatePath = path; return this; }
         public Builder<T> setDiscoveryInterval(Duration interval) { this.discoveryInterval = interval; return this; }
         public Builder<T> setPollBackoff(Duration backoff) { this.pollBackoff = backoff; return this; }
+        public Builder<T> setPollTimeout(Duration timeout) { this.pollTimeout = timeout; return this; }
         public Builder<T> setBatchSize(int batchSize) {
             Preconditions.checkArgument(batchSize > 0, "Batch size must be positive");
             this.batchSize = batchSize; return this;

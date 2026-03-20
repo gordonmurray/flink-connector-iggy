@@ -32,7 +32,7 @@ class IggySplitEnumeratorTest {
         var config = new IggyConnectionConfig(HOST, PORT, "iggy", "iggy", false, null);
         var reader = new IggySourceReader<byte[]>(
                 new IggySourceReaderTest.StubSourceReaderContext(),
-                config, 100L, 100, 1L, payload -> payload);
+                config, 100L, 5000L, 100, 1L, payload -> payload);
         reader.start();
         reader.addSplits(List.of(
                 new IggySplit("crypto", "prices", 0, 0),

@@ -10,6 +10,7 @@ import org.apache.flink.table.factories.DeserializationFormatFactory;
 import org.apache.flink.table.factories.DynamicTableSourceFactory;
 import org.apache.flink.table.factories.FactoryUtil;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -53,6 +54,10 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
             .key("tls").booleanType().defaultValue(false);
     public static final ConfigOption<String> TLS_CERTIFICATE = ConfigOptions
             .key("tls.certificate").stringType().noDefaultValue();
+    public static final ConfigOption<Long> POLL_TIMEOUT = ConfigOptions
+            .key("poll.timeout").longType().defaultValue(5000L)
+            .withDescription("Timeout in milliseconds for each poll call to Iggy. "
+                    + "Prevents blocking on empty partitions.");
 
     @Override
     public String factoryIdentifier() {
@@ -76,6 +81,7 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         options.add(PASSWORD);
         options.add(TLS);
         options.add(TLS_CERTIFICATE);
+        options.add(POLL_TIMEOUT);
         options.add(FactoryUtil.FORMAT);
         return options;
     }
@@ -98,10 +104,12 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         String topic = helper.getOptions().get(TOPIC);
         boolean tlsEnabled = helper.getOptions().get(TLS);
         String tlsCert = helper.getOptions().get(TLS_CERTIFICATE);
+        long pollTimeoutMs = helper.getOptions().get(POLL_TIMEOUT);
 
         return new IggyDynamicTableSource(
                 host, port, username, password, stream, topic,
                 tlsEnabled, tlsCert,
+                Duration.ofMillis(pollTimeoutMs),
                 decodingFormat,
                 context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType());
     }

@@ -10,6 +10,8 @@ import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.types.RowKind;
 
+import java.time.Duration;
+
 /**
  * Scan table source for Apache Iggy.
  */
@@ -23,6 +25,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
     private final String topic;
     private final boolean tls;
     private final String tlsCertificatePath;
+    private final Duration pollTimeout;
     private final DecodingFormat<DeserializationSchema<RowData>> decodingFormat;
     private final DataType physicalDataType;
 
@@ -31,6 +34,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
             String username, String password,
             String stream, String topic,
             boolean tls, String tlsCertificatePath,
+            Duration pollTimeout,
             DecodingFormat<DeserializationSchema<RowData>> decodingFormat,
             DataType physicalDataType) {
         this.host = host;
@@ -41,6 +45,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
         this.topic = topic;
         this.tls = tls;
         this.tlsCertificatePath = tlsCertificatePath;
+        this.pollTimeout = pollTimeout;
         this.decodingFormat = decodingFormat;
         this.physicalDataType = physicalDataType;
     }
@@ -65,6 +70,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
                 .setCredentials(username, password)
                 .setStream(stream)
                 .setTopic(topic)
+                .setPollTimeout(pollTimeout)
                 .setDeserializer(iggySchema);
 
         if (tls) {
@@ -81,7 +87,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
     public DynamicTableSource copy() {
         return new IggyDynamicTableSource(
                 host, port, username, password, stream, topic,
-                tls, tlsCertificatePath, decodingFormat, physicalDataType);
+                tls, tlsCertificatePath, pollTimeout, decodingFormat, physicalDataType);
     }
 
     @Override
