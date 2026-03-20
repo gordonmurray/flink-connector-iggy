@@ -25,7 +25,7 @@ class IggySourceReaderTest {
 
     static IggySourceReader<byte[]> createReader() {
         var config = new IggyConnectionConfig(HOST, PORT, "iggy", "iggy", false, null);
-        return new IggySourceReader<>(new StubSourceReaderContext(), config, 100L, 100, 1L, payload -> payload);
+        return new IggySourceReader<>(new StubSourceReaderContext(), config, 100L, 5000L, 100, 1L, payload -> payload);
     }
 
     @Test

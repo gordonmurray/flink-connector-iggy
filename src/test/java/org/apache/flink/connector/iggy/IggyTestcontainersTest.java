@@ -67,7 +67,7 @@ class IggyTestcontainersTest {
     void shouldReadAllMessages() throws Exception {
         var reader = new IggySourceReader<byte[]>(
                 new IggySourceReaderTest.StubSourceReaderContext(),
-                config, 100L, 100, 1L, payload -> payload);
+                config, 100L, 5000L, 100, 1L, payload -> payload);
         reader.start();
         reader.addSplits(Collections.singletonList(new IggySplit("test-stream", "test-topic", 0, 0)));
 

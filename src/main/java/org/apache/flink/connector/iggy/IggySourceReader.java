@@ -21,7 +21,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Pulls data from Iggy partitions using round-robin polling with non-blocking backoff.
@@ -35,12 +39,14 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
     private final SourceReaderContext context;
     private final IggyConnectionConfig connectionConfig;
     private final long pollBackoffMs;
+    private final long pollTimeoutMs;
     private final int batchSize;
     private final long consumerId;
     private final IggyDeserializationSchema<T> deserializer;
 
     // Accessed only from the Flink mailbox thread.
     private IggyTcpClient client;
+    private ExecutorService pollExecutor;
     private final List<IggySplit> assignedSplits = new ArrayList<>();
     private CompletableFuture<Void> availability = new CompletableFuture<>();
     private int nextSplitIndex;
@@ -52,12 +58,14 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
             SourceReaderContext context,
             IggyConnectionConfig connectionConfig,
             long pollBackoffMs,
+            long pollTimeoutMs,
             int batchSize,
             long consumerId,
             IggyDeserializationSchema<T> deserializer) {
         this.context = context;
         this.connectionConfig = connectionConfig;
         this.pollBackoffMs = pollBackoffMs;
+        this.pollTimeoutMs = pollTimeoutMs;
         this.batchSize = batchSize;
         this.consumerId = consumerId;
         this.deserializer = deserializer;
@@ -65,9 +73,15 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
 
     @Override
     public void start() {
-        LOG.info("Connecting to Iggy at {}:{}", connectionConfig.host(), connectionConfig.port());
+        LOG.info("Connecting to Iggy at {}:{} (poll timeout {}ms)",
+                connectionConfig.host(), connectionConfig.port(), pollTimeoutMs);
         numRecordsIn = context.metricGroup().counter("numRecordsIn");
         numBytesIn = context.metricGroup().counter("numBytesIn");
+        this.pollExecutor = Executors.newCachedThreadPool(r -> {
+            Thread t = new Thread(r, "iggy-poll");
+            t.setDaemon(true);
+            return t;
+        });
         try {
             this.client = connectionConfig.connect();
             this.deserializer.open(context.metricGroup());
@@ -88,17 +102,26 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
 
             PolledMessages polled;
             try {
-                polled = client.messages().pollMessages(
-                        StreamId.of(split.getStreamId()),
-                        TopicId.of(split.getTopicId()),
-                        Optional.of((long) split.getPartitionId()),
-                        Consumer.of(consumerId),
-                        PollingStrategy.offset(BigInteger.valueOf(split.getCurrentOffset())),
-                        (long) batchSize,
-                        false);
-            } catch (Exception e) {
-                LOG.warn("Poll failed for {}, will retry on next cycle", split.splitId(), e);
+                CompletableFuture<PolledMessages> future = CompletableFuture.supplyAsync(
+                        () -> client.messages().pollMessages(
+                                StreamId.of(split.getStreamId()),
+                                TopicId.of(split.getTopicId()),
+                                Optional.of((long) split.getPartitionId()),
+                                Consumer.of(consumerId),
+                                PollingStrategy.offset(BigInteger.valueOf(split.getCurrentOffset())),
+                                (long) batchSize,
+                                false),
+                        pollExecutor);
+                polled = future.get(pollTimeoutMs, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                LOG.debug("Poll timed out for {}, partition likely empty", split.splitId());
                 continue;
+            } catch (ExecutionException e) {
+                LOG.warn("Poll failed for {}, will retry on next cycle", split.splitId(), e.getCause());
+                continue;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return InputStatus.NOTHING_AVAILABLE;
             }
 
             if (!polled.messages().isEmpty()) {
@@ -145,6 +168,9 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
 
     @Override
     public void close() {
+        if (pollExecutor != null) {
+            pollExecutor.shutdownNow();
+        }
         // IggyTcpClient 0.7.0 has no close/shutdown — relies on GC.
         // Monitor thread counts in long-running jobs.
         client = null;

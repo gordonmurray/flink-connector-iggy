@@ -40,4 +40,16 @@ class IggyDynamicTableFactoryTest {
         assertEquals("iggy", IggyDynamicTableFactory.PASSWORD.defaultValue());
         assertEquals(false, IggyDynamicTableFactory.TLS.defaultValue());
     }
+
+    @Test
+    void shouldHaveDefaultPollTimeout() {
+        assertEquals(5000L, IggyDynamicTableFactory.POLL_TIMEOUT.defaultValue());
+    }
+
+    @Test
+    void shouldExposePollTimeoutAsOptional() {
+        var factory = new IggyDynamicTableFactory();
+        var keys = factory.optionalOptions().stream().map(o -> o.key()).toList();
+        assertTrue(keys.contains("poll.timeout"));
+    }
 }
