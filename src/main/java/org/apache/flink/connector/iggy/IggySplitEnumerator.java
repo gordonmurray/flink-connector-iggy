@@ -6,16 +6,21 @@ import org.apache.iggy.client.blocking.tcp.IggyTcpClient;
 import org.apache.iggy.identifier.StreamId;
 import org.apache.iggy.identifier.TopicId;
 
+import org.apache.iggy.consumergroup.Consumer;
+import org.apache.iggy.message.PollingStrategy;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -31,6 +36,7 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
     private final String streamId;
     private final String topicId;
     private final long discoveryIntervalMs;
+    private final IggyOffsetSpec offsetSpec;
 
     private IggyTcpClient client;
     private final List<IggySplit> unassignedSplits = new ArrayList<>();
@@ -42,11 +48,8 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
             IggyConnectionConfig connectionConfig,
             String streamId, String topicId,
             long discoveryIntervalMs) {
-        this.context = context;
-        this.connectionConfig = connectionConfig;
-        this.streamId = streamId;
-        this.topicId = topicId;
-        this.discoveryIntervalMs = discoveryIntervalMs;
+        this(context, connectionConfig, streamId, topicId, discoveryIntervalMs,
+                IggyOffsetSpec.earliest());
     }
 
     IggySplitEnumerator(
@@ -54,12 +57,40 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
             IggyConnectionConfig connectionConfig,
             String streamId, String topicId,
             long discoveryIntervalMs,
+            IggyOffsetSpec offsetSpec) {
+        this.context = context;
+        this.connectionConfig = connectionConfig;
+        this.streamId = streamId;
+        this.topicId = topicId;
+        this.discoveryIntervalMs = discoveryIntervalMs;
+        this.offsetSpec = offsetSpec != null ? offsetSpec : IggyOffsetSpec.earliest();
+    }
+
+    IggySplitEnumerator(
+            SplitEnumeratorContext<IggySplit> context,
+            IggyConnectionConfig connectionConfig,
+            String streamId, String topicId,
+            long discoveryIntervalMs,
+            IggyOffsetSpec offsetSpec,
             IggyEnumeratorState restored) {
-        this(context, connectionConfig, streamId, topicId, discoveryIntervalMs);
+        this(context, connectionConfig, streamId, topicId, discoveryIntervalMs, offsetSpec);
+        // Restored splits carry their persisted offsets from checkpoint.
+        // The offsetSpec is NOT applied here — it only affects newly discovered partitions.
         unassignedSplits.addAll(restored.assignedSplits());
         unassignedSplits.addAll(restored.unassignedSplits());
         unassignedSplits.forEach(s -> knownPartitions.add(s.getPartitionId()));
         LOG.info("Restored enumerator with {} splits", unassignedSplits.size());
+    }
+
+    // Keep backward-compatible restore constructor (used by existing callers)
+    IggySplitEnumerator(
+            SplitEnumeratorContext<IggySplit> context,
+            IggyConnectionConfig connectionConfig,
+            String streamId, String topicId,
+            long discoveryIntervalMs,
+            IggyEnumeratorState restored) {
+        this(context, connectionConfig, streamId, topicId, discoveryIntervalMs,
+                IggyOffsetSpec.earliest(), restored);
     }
 
     @Override
@@ -115,7 +146,11 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
 
         for (var i = 0; i < partitionCount; i++) {
             if (knownPartitions.add(i)) {
-                unassignedSplits.add(new IggySplit(streamId, topicId, i, 0));
+                // offsetSpec is applied only to NEW splits created during partition discovery.
+                // Splits restored from checkpoint carry their persisted offsets and are not
+                // re-initialised here. See the restore constructor.
+                long startOffset = resolveStartingOffset(i);
+                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset));
             }
         }
     }
@@ -134,13 +169,42 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
         var added = 0;
         for (var i = 0; i < currentCount; i++) {
             if (knownPartitions.add(i)) {
-                unassignedSplits.add(new IggySplit(streamId, topicId, i, 0));
+                long startOffset = resolveStartingOffset(i);
+                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset));
                 added++;
             }
         }
         if (added > 0) {
             LOG.info("Discovered {} new partition(s)", added);
             assignPendingSplits();
+        }
+    }
+
+    private long resolveStartingOffset(int partitionId) {
+        return switch (offsetSpec.getPolicy()) {
+            case EARLIEST -> 0L;
+            case LATEST -> fetchLatestOffset(partitionId);
+            case SPECIFIC_OFFSET -> offsetSpec.getSpecificOffset();
+        };
+    }
+
+    private long fetchLatestOffset(int partitionId) {
+        try {
+            var polled = client.messages().pollMessages(
+                    StreamId.of(streamId), TopicId.of(topicId),
+                    Optional.of((long) partitionId),
+                    Consumer.of(0L),
+                    PollingStrategy.last(),
+                    1L,
+                    false);
+            if (polled.messages().isEmpty()) {
+                return 0L;
+            }
+            // Next offset to be written = last message offset + 1
+            return polled.messages().get(0).header().offset().longValue() + 1;
+        } catch (Exception e) {
+            LOG.warn("Failed to fetch latest offset for partition {}, defaulting to 0", partitionId, e);
+            return 0L;
         }
     }
 
