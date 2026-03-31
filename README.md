@@ -129,46 +129,6 @@ CREATE TABLE iggy_traffic_replay (
 **Note:** When running Flink in Docker, set `'host'` to the Iggy container name
 (e.g., `'host' = 'iggy'`), not `localhost`.
 
-### DataStream API (raw bytes)
-
-```java
-IggySource<byte[]> source = IggySource.forBytes("crypto", "prices");
-
-DataStream<byte[]> stream = env.fromSource(
-    source, WatermarkStrategy.noWatermarks(), "iggy-source");
-```
-
-### DataStream API (with deserialization)
-
-```java
-IggySource<MyPojo> source = IggySource.<MyPojo>builder()
-    .setHost("localhost")
-    .setStream("crypto")
-    .setTopic("prices")
-    .setDeserializer(bytes -> objectMapper.readValue(bytes, MyPojo.class))
-    .build();
-```
-
-### DataStream API (with starting offset)
-
-```java
-// Start from latest — skip all existing messages
-IggySource<byte[]> latestSource = IggySource.<byte[]>builder()
-    .setStream("crypto")
-    .setTopic("prices")
-    .setDeserializer(payload -> payload)
-    .setStartingOffset(IggyOffsetSpec.latest())
-    .build();
-
-// Start from a specific offset — replay use case
-IggySource<byte[]> replaySource = IggySource.<byte[]>builder()
-    .setStream("crypto")
-    .setTopic("prices")
-    .setDeserializer(payload -> payload)
-    .setStartingOffset(IggyOffsetSpec.specificOffset(48291L))
-    .build();
-```
-
 ---
 
 ## Working Example
