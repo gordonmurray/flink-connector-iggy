@@ -6,7 +6,7 @@
 
     <groupId>dev.iggy.flink</groupId>
     <artifactId>flink-connector-iggy</artifactId>
-    <version>0.1.1-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <name>Flink Connector for Apache Iggy</name>
 
     <properties>
