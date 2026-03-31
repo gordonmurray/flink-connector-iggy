@@ -67,4 +67,36 @@ class IggySourceBuilderTest {
         assertNotNull(source);
         assertEquals(Boundedness.CONTINUOUS_UNBOUNDED, source.getBoundedness());
     }
+
+    @Test
+    void shouldBuildWithStartingOffset() {
+        var source = IggySource.<byte[]>builder()
+                .setStream("s")
+                .setTopic("t")
+                .setDeserializer(payload -> payload)
+                .setStartingOffset(IggyOffsetSpec.latest())
+                .build();
+        assertNotNull(source);
+    }
+
+    @Test
+    void shouldBuildWithSpecificOffset() {
+        var source = IggySource.<byte[]>builder()
+                .setStream("s")
+                .setTopic("t")
+                .setDeserializer(payload -> payload)
+                .setStartingOffset(IggyOffsetSpec.specificOffset(500))
+                .build();
+        assertNotNull(source);
+    }
+
+    @Test
+    void shouldDefaultToEarliestWhenNotSet() {
+        var source = IggySource.<byte[]>builder()
+                .setStream("s")
+                .setTopic("t")
+                .setDeserializer(payload -> payload)
+                .build();
+        assertNotNull(source);
+    }
 }

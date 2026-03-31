@@ -94,6 +94,37 @@ Connection properties (with defaults):
 | `password` | `iggy` | No |
 | `tls` | `false` | No |
 | `tls.certificate` | — | No |
+| `starting-offset` | `earliest` | No |
+| `poll.timeout` | `5000` | No |
+
+The `starting-offset` property controls where new splits begin consuming:
+- `earliest` (default) — start from the beginning of the partition
+- `latest` — start from the current end, skipping existing messages
+- `specific-offset:<long>` — start from a specific offset (e.g., `specific-offset:48291`)
+
+```sql
+-- Start from latest (skip historical messages)
+CREATE TABLE iggy_traffic (
+  ...
+) WITH (
+  'connector'       = 'iggy',
+  'stream'          = 'web-traffic',
+  'topic'           = 'requests',
+  'format'          = 'json',
+  'starting-offset' = 'latest'
+);
+
+-- Start from a specific offset (replay use case)
+CREATE TABLE iggy_traffic_replay (
+  ...
+) WITH (
+  'connector'       = 'iggy',
+  'stream'          = 'web-traffic',
+  'topic'           = 'requests',
+  'format'          = 'json',
+  'starting-offset' = 'specific-offset:48291'
+);
+```
 
 **Note:** When running Flink in Docker, set `'host'` to the Iggy container name
 (e.g., `'host' = 'iggy'`), not `localhost`.
@@ -115,6 +146,26 @@ IggySource<MyPojo> source = IggySource.<MyPojo>builder()
     .setStream("crypto")
     .setTopic("prices")
     .setDeserializer(bytes -> objectMapper.readValue(bytes, MyPojo.class))
+    .build();
+```
+
+### DataStream API (with starting offset)
+
+```java
+// Start from latest — skip all existing messages
+IggySource<byte[]> latestSource = IggySource.<byte[]>builder()
+    .setStream("crypto")
+    .setTopic("prices")
+    .setDeserializer(payload -> payload)
+    .setStartingOffset(IggyOffsetSpec.latest())
+    .build();
+
+// Start from a specific offset — replay use case
+IggySource<byte[]> replaySource = IggySource.<byte[]>builder()
+    .setStream("crypto")
+    .setTopic("prices")
+    .setDeserializer(payload -> payload)
+    .setStartingOffset(IggyOffsetSpec.specificOffset(48291L))
     .build();
 ```
 

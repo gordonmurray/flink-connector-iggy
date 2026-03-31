@@ -52,4 +52,16 @@ class IggyDynamicTableFactoryTest {
         var keys = factory.optionalOptions().stream().map(o -> o.key()).toList();
         assertTrue(keys.contains("poll.timeout"));
     }
+
+    @Test
+    void shouldExposeStartingOffsetAsOptional() {
+        var factory = new IggyDynamicTableFactory();
+        var keys = factory.optionalOptions().stream().map(o -> o.key()).toList();
+        assertTrue(keys.contains("starting-offset"));
+    }
+
+    @Test
+    void shouldHaveDefaultStartingOffset() {
+        assertEquals("earliest", IggyDynamicTableFactory.STARTING_OFFSET.defaultValue());
+    }
 }

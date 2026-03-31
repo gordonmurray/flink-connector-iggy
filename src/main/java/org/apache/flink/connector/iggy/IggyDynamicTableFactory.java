@@ -58,6 +58,10 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
             .key("poll.timeout").longType().defaultValue(5000L)
             .withDescription("Timeout in milliseconds for each poll call to Iggy. "
                     + "Prevents blocking on empty partitions.");
+    public static final ConfigOption<String> STARTING_OFFSET = ConfigOptions
+            .key("starting-offset").stringType().defaultValue("earliest")
+            .withDescription("Starting offset policy for new splits: "
+                    + "'earliest', 'latest', or 'specific-offset:<long>'.");
 
     @Override
     public String factoryIdentifier() {
@@ -82,6 +86,7 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         options.add(TLS);
         options.add(TLS_CERTIFICATE);
         options.add(POLL_TIMEOUT);
+        options.add(STARTING_OFFSET);
         options.add(FactoryUtil.FORMAT);
         return options;
     }
@@ -105,12 +110,39 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         boolean tlsEnabled = helper.getOptions().get(TLS);
         String tlsCert = helper.getOptions().get(TLS_CERTIFICATE);
         long pollTimeoutMs = helper.getOptions().get(POLL_TIMEOUT);
+        IggyOffsetSpec offsetSpec = parseStartingOffset(helper.getOptions().get(STARTING_OFFSET));
 
         return new IggyDynamicTableSource(
                 host, port, username, password, stream, topic,
                 tlsEnabled, tlsCert,
                 Duration.ofMillis(pollTimeoutMs),
+                offsetSpec,
                 decodingFormat,
                 context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType());
+    }
+
+    static IggyOffsetSpec parseStartingOffset(String value) {
+        if (value == null || value.isBlank()) {
+            return IggyOffsetSpec.earliest();
+        }
+        String trimmed = value.trim().toLowerCase();
+        if ("earliest".equals(trimmed)) {
+            return IggyOffsetSpec.earliest();
+        }
+        if ("latest".equals(trimmed)) {
+            return IggyOffsetSpec.latest();
+        }
+        if (trimmed.startsWith("specific-offset:")) {
+            String offsetStr = trimmed.substring("specific-offset:".length()).trim();
+            try {
+                return IggyOffsetSpec.specificOffset(Long.parseLong(offsetStr));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(
+                        "Invalid specific-offset value: '" + offsetStr + "'. Expected a long.", e);
+            }
+        }
+        throw new IllegalArgumentException(
+                "Unknown starting-offset value: '" + value
+                        + "'. Expected 'earliest', 'latest', or 'specific-offset:<long>'.");
     }
 }

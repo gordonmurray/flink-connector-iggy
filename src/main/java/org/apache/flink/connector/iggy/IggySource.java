@@ -41,6 +41,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
     private final int batchSize;
     private final long consumerId;
     private final IggyDeserializationSchema<T> deserializer;
+    private final IggyOffsetSpec offsetSpec;
 
     private IggySource(Builder<T> b) {
         this.connectionConfig = new IggyConnectionConfig(
@@ -53,6 +54,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         this.batchSize = b.batchSize;
         this.consumerId = b.consumerId;
         this.deserializer = Preconditions.checkNotNull(b.deserializer, "Deserializer must be set");
+        this.offsetSpec = b.offsetSpec != null ? b.offsetSpec : IggyOffsetSpec.earliest();
     }
 
     public static <T> Builder<T> builder() {
@@ -85,7 +87,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
             SplitEnumeratorContext<IggySplit> enumContext) {
         return new IggySplitEnumerator(
                 enumContext, connectionConfig, streamId, topicId,
-                discoveryInterval.toMillis());
+                discoveryInterval.toMillis(), offsetSpec);
     }
 
     @Override
@@ -94,7 +96,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
             IggyEnumeratorState checkpoint) {
         return new IggySplitEnumerator(
                 enumContext, connectionConfig, streamId, topicId,
-                discoveryInterval.toMillis(), checkpoint);
+                discoveryInterval.toMillis(), offsetSpec, checkpoint);
     }
 
     @Override
@@ -123,6 +125,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         private int batchSize = 100;
         private long consumerId = 1L;
         private IggyDeserializationSchema<T> deserializer;
+        private IggyOffsetSpec offsetSpec;
 
         public Builder<T> setHost(String host) { this.host = host; return this; }
         public Builder<T> setPort(int port) {
@@ -145,6 +148,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         }
         public Builder<T> setConsumerId(long consumerId) { this.consumerId = consumerId; return this; }
         public Builder<T> setDeserializer(IggyDeserializationSchema<T> d) { this.deserializer = d; return this; }
+        public Builder<T> setStartingOffset(IggyOffsetSpec offsetSpec) { this.offsetSpec = offsetSpec; return this; }
 
         public IggySource<T> build() {
             return new IggySource<>(this);
