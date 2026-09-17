@@ -1,6 +1,6 @@
 # flink-connector-iggy
 
-A Flink Source Connector for **Apache Iggy (v0.7.0)** with Flink SQL support,
+A Flink Source Connector for **Apache Iggy (v0.8.0)** with Flink SQL support,
 metrics, and TLS.
 
 Tested on **Flink 1.18.1** and **Flink 1.20.3** (LTS). Built on the FLIP-27
@@ -13,8 +13,8 @@ Source v2 API, which is binary compatible across Flink 1.18 → 1.20.
 | Component | Tested Versions |
 |---|---|
 | **Flink** | 1.18.1, 1.20.3 (LTS) |
-| **Iggy Server** | 0.7.0 |
-| **Iggy Java SDK** | `org.apache.iggy:iggy:0.7.0` |
+| **Iggy Server** | 0.8.0 |
+| **Iggy Java SDK** | `org.apache.iggy:iggy:0.8.0` |
 | **Java** | 17+ |
 
 The connector JAR is compiled with Java 17. Use a `-java17` Flink Docker image
