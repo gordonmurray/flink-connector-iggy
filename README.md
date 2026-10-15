@@ -1,6 +1,6 @@
 # flink-connector-iggy
 
-A Flink Source Connector for **Apache Iggy (v0.7.0)** with Flink SQL support,
+A Flink Source Connector for **Apache Iggy (v0.8.0)** with Flink SQL support,
 metrics, and TLS.
 
 Tested on **Flink 1.18.1** and **Flink 1.20.3** (LTS). Built on the FLIP-27
@@ -13,8 +13,8 @@ Source v2 API, which is binary compatible across Flink 1.18 → 1.20.
 | Component | Tested Versions |
 |---|---|
 | **Flink** | 1.18.1, 1.20.3 (LTS) |
-| **Iggy Server** | 0.7.0 |
-| **Iggy Java SDK** | `org.apache.iggy:iggy:0.7.0` |
+| **Iggy Server** | 0.8.0 |
+| **Iggy Java SDK** | `org.apache.iggy:iggy:0.8.0` |
 | **Java** | 17+ |
 
 The connector JAR is compiled with Java 17. Use a `-java17` Flink Docker image
@@ -52,7 +52,7 @@ This connector addresses all of the above.
 - **Non-blocking backoff**: Empty polls trigger a configurable delayed retry instead of hanging.
 - **Fair polling**: Round-robin across assigned splits prevents partition starvation.
 - **Failure handling**: a poll that fails, or gets no response within `poll.timeout`, discards the connection and reconnects (an empty partition answers immediately, so it never hits the timeout). A failed request is never retried on the same connection, because the SDK matches responses to requests in order. The same split failing 3 times in a row, or 3 failed reconnects, fails the task so Flink restarts it, instead of a dead connection looking like an empty partition.
-- **Connections are released**: readers and the enumerator close their Iggy connection on shutdown and task restart. Iggy Java SDK 0.7.0 has no close method, so the connector disposes the underlying connection itself.
+- **Connections are released**: readers and the enumerator close their Iggy connection on shutdown and task restart, using the SDK's `close()` (0.8). Iggy Java SDK 0.7.0 had no close method; built against it, the connector disposes the underlying connection itself.
 - **TCP binary protocol**: High-throughput connection via `IggyTcpClient`.
 
 ---

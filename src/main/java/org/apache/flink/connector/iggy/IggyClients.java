@@ -18,8 +18,8 @@ import org.slf4j.LoggerFactory;
  * direct buffers. A task that restarts inside the same TaskManager JVM leaks one
  * connection per restart until direct memory runs out.
  *
- * <p>Until the SDK is closeable this disposes the connection reflectively. If a later
- * SDK implements {@link AutoCloseable}, that is used instead.
+ * <p>From SDK 0.8 the client implements {@link AutoCloseable} and that is used. Built
+ * against 0.7, the connection is disposed reflectively instead.
  */
 final class IggyClients {
 
