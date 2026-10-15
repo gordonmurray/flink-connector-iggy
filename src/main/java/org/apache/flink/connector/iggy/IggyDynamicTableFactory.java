@@ -58,6 +58,12 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
             .key("poll.timeout").longType().defaultValue(5000L)
             .withDescription("Timeout in milliseconds for each poll call to Iggy. "
                     + "Prevents blocking on empty partitions.");
+    public static final ConfigOption<String> STALE_OFFSET = ConfigOptions
+            .key("stale-offset").stringType().defaultValue("earliest")
+            .withDescription("What to do when a restored offset is beyond the end of its partition, "
+                    + "because the topic was recreated or purged: 'earliest' (re-read the partition), "
+                    + "'latest' (skip to its end), or 'fail'.");
+
     public static final ConfigOption<String> STARTING_OFFSET = ConfigOptions
             .key("starting-offset").stringType().defaultValue("earliest")
             .withDescription("Starting offset policy for new splits: "
@@ -87,6 +93,7 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         options.add(TLS_CERTIFICATE);
         options.add(POLL_TIMEOUT);
         options.add(STARTING_OFFSET);
+        options.add(STALE_OFFSET);
         options.add(FactoryUtil.FORMAT);
         return options;
     }
@@ -111,14 +118,27 @@ public class IggyDynamicTableFactory implements DynamicTableSourceFactory {
         String tlsCert = helper.getOptions().get(TLS_CERTIFICATE);
         long pollTimeoutMs = helper.getOptions().get(POLL_TIMEOUT);
         IggyOffsetSpec offsetSpec = parseStartingOffset(helper.getOptions().get(STARTING_OFFSET));
+        IggyStaleOffsetPolicy staleOffsetPolicy = parseStaleOffset(helper.getOptions().get(STALE_OFFSET));
 
         return new IggyDynamicTableSource(
                 host, port, username, password, stream, topic,
                 tlsEnabled, tlsCert,
                 Duration.ofMillis(pollTimeoutMs),
                 offsetSpec,
+                staleOffsetPolicy,
                 decodingFormat,
                 context.getCatalogTable().getResolvedSchema().toPhysicalRowDataType());
+    }
+
+    static IggyStaleOffsetPolicy parseStaleOffset(String value) {
+        String v = value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (v) {
+            case "", "earliest" -> IggyStaleOffsetPolicy.EARLIEST;
+            case "latest" -> IggyStaleOffsetPolicy.LATEST;
+            case "fail" -> IggyStaleOffsetPolicy.FAIL;
+            default -> throw new IllegalArgumentException(
+                    "Unknown stale-offset value: '" + value + "'. Expected 'earliest', 'latest', or 'fail'.");
+        };
     }
 
     static IggyOffsetSpec parseStartingOffset(String value) {

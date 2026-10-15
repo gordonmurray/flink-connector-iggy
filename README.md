@@ -44,7 +44,7 @@ This connector addresses all of the above.
 
 - **Flink Source API (v2)**: FLIP-27 `Source` interface, compatible across Flink 1.18–1.20.
 - **Flink SQL**: `CREATE TABLE ... WITH ('connector' = 'iggy')` via `DynamicTableSourceFactory`.
-- **Flink metrics**: `numRecordsIn` and `numBytesIn` counters per reader.
+- **Flink metrics**: `numRecordsIn`, `numBytesIn` and `staleOffsetResets` counters per reader.
 - **TLS support**: Optional TLS via `'tls' = 'true'` and `'tls.certificate' = '/path'`.
 - **Generic source**: `IggySource<T>` supports any output type via `IggyDeserializationSchema<T>`.
 - **Multi-partition**: Discovers partitions at startup and periodically (configurable) for runtime-added partitions. Round-robin assignment to parallel readers.
@@ -97,11 +97,32 @@ Connection properties (with defaults):
 | `tls.certificate` | — | No |
 | `starting-offset` | `earliest` | No |
 | `poll.timeout` | `5000` | No |
+| `stale-offset` | `earliest` | No |
 
 The `starting-offset` property controls where new splits begin consuming:
 - `earliest` (default) — start from the beginning of the partition
 - `latest` — start from the current end, skipping existing messages
 - `specific-offset:<long>` — start from a specific offset (e.g., `specific-offset:48291`)
+
+The `stale-offset` property controls what a reader does when an offset restored from a
+checkpoint is beyond the end of its partition. That only happens when the topic was
+deleted and recreated, or purged, after the checkpoint: Iggy restarts the partition at
+offset 0 and answers a poll past the end with an empty batch, not an error. Without
+this check the job looked healthy, waited until the new partition grew past the old
+offset, and then silently skipped every message below it.
+- `earliest` (default) — re-read the partition from offset 0; everything in a recreated topic is new
+- `latest` — skip to the current end of the partition
+- `fail` — fail the task with an explanation (restarts fail again until the job is resubmitted)
+
+A split that is still on a configured `specific-offset` beyond the end is left alone
+until it has read something, since starting there was deliberate. Each reset is logged as
+a warning and counted in the reader's `staleOffsetResets` metric.
+
+**Upgrading from 0.2.0 or earlier:** checkpoints written before `stale-offset` existed do not
+record that a split is deliberately waiting at a future `specific-offset`. If you restore one
+while a split is still waiting there (its partition has not reached that offset yet), the
+stale-offset policy applies to it. Let the partition reach the offset first, or resubmit the
+job instead of restoring it.
 
 ```sql
 -- Start from latest (skip historical messages)

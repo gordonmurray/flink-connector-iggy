@@ -42,6 +42,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
     private final long consumerId;
     private final IggyDeserializationSchema<T> deserializer;
     private final IggyOffsetSpec offsetSpec;
+    private final IggyStaleOffsetPolicy staleOffsetPolicy;
 
     private IggySource(Builder<T> b) {
         this.connectionConfig = new IggyConnectionConfig(
@@ -55,6 +56,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         this.consumerId = b.consumerId;
         this.deserializer = Preconditions.checkNotNull(b.deserializer, "Deserializer must be set");
         this.offsetSpec = b.offsetSpec != null ? b.offsetSpec : IggyOffsetSpec.earliest();
+        this.staleOffsetPolicy = Preconditions.checkNotNull(b.staleOffsetPolicy);
     }
 
     public static <T> Builder<T> builder() {
@@ -79,7 +81,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
     public SourceReader<T, IggySplit> createReader(SourceReaderContext readerContext) {
         return new IggySourceReader<>(
                 readerContext, connectionConfig, pollBackoff.toMillis(),
-                pollTimeout.toMillis(), batchSize, consumerId, deserializer);
+                pollTimeout.toMillis(), batchSize, consumerId, deserializer, staleOffsetPolicy);
     }
 
     @Override
@@ -126,6 +128,7 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         private long consumerId = 1L;
         private IggyDeserializationSchema<T> deserializer;
         private IggyOffsetSpec offsetSpec;
+        private IggyStaleOffsetPolicy staleOffsetPolicy = IggyStaleOffsetPolicy.EARLIEST;
 
         public Builder<T> setHost(String host) { this.host = host; return this; }
         public Builder<T> setPort(int port) {
@@ -149,6 +152,10 @@ public class IggySource<T> implements Source<T, IggySplit, IggyEnumeratorState>,
         public Builder<T> setConsumerId(long consumerId) { this.consumerId = consumerId; return this; }
         public Builder<T> setDeserializer(IggyDeserializationSchema<T> d) { this.deserializer = d; return this; }
         public Builder<T> setStartingOffset(IggyOffsetSpec offsetSpec) { this.offsetSpec = offsetSpec; return this; }
+        /** What to do when a restored offset is beyond the end of its partition (topic recreated or purged). */
+        public Builder<T> setStaleOffsetPolicy(IggyStaleOffsetPolicy policy) {
+            this.staleOffsetPolicy = Preconditions.checkNotNull(policy); return this;
+        }
 
         public IggySource<T> build() {
             return new IggySource<>(this);

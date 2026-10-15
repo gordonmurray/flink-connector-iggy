@@ -19,12 +19,25 @@ public class IggySplit implements SourceSplit, Serializable {
     private final String topicId;
     private final int partitionId;
     private long currentOffset;
+    private boolean awaitingConfiguredStart;
 
     public IggySplit(String streamId, String topicId, int partitionId, long currentOffset) {
+        this(streamId, topicId, partitionId, currentOffset, false);
+    }
+
+    /**
+     * @param awaitingConfiguredStart true for a new split created at a configured
+     *     {@code specific-offset} that has not read anything yet. Such a split may sit
+     *     beyond the end of its partition on purpose, so it is exempt from stale-offset
+     *     detection until its first message.
+     */
+    public IggySplit(String streamId, String topicId, int partitionId, long currentOffset,
+                     boolean awaitingConfiguredStart) {
         this.streamId = Objects.requireNonNull(streamId);
         this.topicId = Objects.requireNonNull(topicId);
         this.partitionId = partitionId;
         this.currentOffset = currentOffset;
+        this.awaitingConfiguredStart = awaitingConfiguredStart;
     }
 
     public String getStreamId() {
@@ -47,6 +60,14 @@ public class IggySplit implements SourceSplit, Serializable {
         this.currentOffset = currentOffset;
     }
 
+    public boolean isAwaitingConfiguredStart() {
+        return awaitingConfiguredStart;
+    }
+
+    public void setAwaitingConfiguredStart(boolean awaitingConfiguredStart) {
+        this.awaitingConfiguredStart = awaitingConfiguredStart;
+    }
+
     @Override
     public String splitId() {
         return String.format("%s:%s:%d", streamId, topicId, partitionId);
@@ -59,13 +80,14 @@ public class IggySplit implements SourceSplit, Serializable {
         IggySplit that = (IggySplit) o;
         return partitionId == that.partitionId &&
                 currentOffset == that.currentOffset &&
+                awaitingConfiguredStart == that.awaitingConfiguredStart &&
                 Objects.equals(streamId, that.streamId) &&
                 Objects.equals(topicId, that.topicId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(streamId, topicId, partitionId, currentOffset);
+        return Objects.hash(streamId, topicId, partitionId, currentOffset, awaitingConfiguredStart);
     }
 
     @Override
@@ -75,6 +97,7 @@ public class IggySplit implements SourceSplit, Serializable {
                 ", topicId='" + topicId + '\'' +
                 ", partitionId=" + partitionId +
                 ", currentOffset=" + currentOffset +
+                ", awaitingConfiguredStart=" + awaitingConfiguredStart +
                 '}';
     }
 }

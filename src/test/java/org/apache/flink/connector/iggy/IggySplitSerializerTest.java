@@ -54,4 +54,24 @@ class IggySplitSerializerTest {
         assertEquals(10, restored.assignedSplits().get(0).getCurrentOffset());
         assertEquals(20, restored.assignedSplits().get(1).getCurrentOffset());
     }
+
+    @Test
+    void shouldRoundTripTheAwaitingConfiguredStartFlag() throws IOException {
+        var serializer = new IggySplitSerializer();
+        var original = new IggySplit("s", "t", 2, 100, true);
+        var restored = serializer.deserialize(serializer.getVersion(), serializer.serialize(original));
+        assertEquals(original, restored);
+        assertTrue(restored.isAwaitingConfiguredStart());
+    }
+
+    @Test
+    void shouldReadSplitsWrittenBeforeTheFlagExisted() throws IOException {
+        // The original version-1 layout: no trailing flag byte
+        byte[] stream = "s".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] topic = "t".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var buffer = java.nio.ByteBuffer.allocate(4 + stream.length + 4 + topic.length + 4 + 8);
+        buffer.putInt(stream.length).put(stream).putInt(topic.length).put(topic).putInt(3).putLong(42L);
+        var restored = new IggySplitSerializer().deserialize(1, buffer.array());
+        assertEquals(new IggySplit("s", "t", 3, 42L, false), restored);
+    }
 }
