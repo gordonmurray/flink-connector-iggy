@@ -132,7 +132,7 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
 
     @Override
     public void close() throws IOException {
-        // IggyTcpClient 0.7.0 has no close/shutdown — relies on GC.
+        IggyClients.closeQuietly(client);
         client = null;
     }
 

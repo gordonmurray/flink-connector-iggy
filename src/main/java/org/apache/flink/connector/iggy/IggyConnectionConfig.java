@@ -29,6 +29,16 @@ record IggyConnectionConfig(
                 builder.tlsCertificate(tlsCertificatePath);
             }
         }
-        return builder.buildAndLogin();
+        // buildAndLogin() without the leak: a login that fails after connecting
+        // would otherwise leave the open connection with no owner to close it.
+        IggyTcpClient client = builder.build();
+        try {
+            client.connect();
+            client.login();
+            return client;
+        } catch (RuntimeException e) {
+            IggyClients.closeQuietly(client);
+            throw e;
+        }
     }
 }
