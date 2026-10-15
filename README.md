@@ -51,7 +51,8 @@ This connector addresses all of the above.
 - **Correct checkpoint semantics**: Polls with explicit offsets, `autoCommit = false`.
 - **Non-blocking backoff**: Empty polls trigger a configurable delayed retry instead of hanging.
 - **Fair polling**: Round-robin across assigned splits prevents partition starvation.
-- **Transient error handling**: TCP failures log a warning and skip to the next split instead of killing the reader.
+- **Failure handling**: a poll that fails, or gets no response within `poll.timeout`, discards the connection and reconnects (an empty partition answers immediately, so it never hits the timeout). A failed request is never retried on the same connection, because the SDK matches responses to requests in order. The same split failing 3 times in a row, or 3 failed reconnects, fails the task so Flink restarts it, instead of a dead connection looking like an empty partition.
+- **Connections are released**: readers and the enumerator close their Iggy connection on shutdown and task restart. Iggy Java SDK 0.7.0 has no close method, so the connector disposes the underlying connection itself.
 - **TCP binary protocol**: High-throughput connection via `IggyTcpClient`.
 
 ---
