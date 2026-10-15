@@ -193,7 +193,7 @@ docker run --rm --network host -e IGGY_HOST=localhost \
   maven:3.9-eclipse-temurin-17 mvn -B test
 ```
 
-Produces a shaded JAR at `target/flink-connector-iggy-0.1.0-SNAPSHOT.jar` (12 MB)
+Produces a shaded JAR at `target/flink-connector-iggy-<version>.jar` (12 MB)
 that bundles the Iggy SDK + Netty but excludes Flink runtime classes.
 
 ### Deployment
