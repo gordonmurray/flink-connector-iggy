@@ -20,6 +20,14 @@ Source v2 API, which is binary compatible across Flink 1.18 → 1.20.
 The connector JAR is compiled with Java 17. Use a `-java17` Flink Docker image
 (e.g., `flink:1.20.3-java17`) or ensure your Flink cluster runs Java 17+.
 
+Iggy 0.7 and 0.8 are not wire-compatible (a 0.7 client against a 0.8 server gets no
+poll responses), so pick the connector release that matches your Iggy server:
+
+| Connector | Iggy server and Java SDK |
+|---|---|
+| 0.4.x (main) | 0.8.0 |
+| [0.3.0](https://github.com/gordonmurray/flink-connector-iggy/releases/tag/v0.3.0) | 0.7.0 |
+
 ---
 
 ## Why Build Our Own?
