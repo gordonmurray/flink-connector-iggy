@@ -27,6 +27,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
     private final String tlsCertificatePath;
     private final Duration pollTimeout;
     private final IggyOffsetSpec offsetSpec;
+    private final IggyStaleOffsetPolicy staleOffsetPolicy;
     private final DecodingFormat<DeserializationSchema<RowData>> decodingFormat;
     private final DataType physicalDataType;
 
@@ -39,6 +40,20 @@ public class IggyDynamicTableSource implements ScanTableSource {
             IggyOffsetSpec offsetSpec,
             DecodingFormat<DeserializationSchema<RowData>> decodingFormat,
             DataType physicalDataType) {
+        this(host, port, username, password, stream, topic, tls, tlsCertificatePath, pollTimeout,
+                offsetSpec, IggyStaleOffsetPolicy.EARLIEST, decodingFormat, physicalDataType);
+    }
+
+    public IggyDynamicTableSource(
+            String host, int port,
+            String username, String password,
+            String stream, String topic,
+            boolean tls, String tlsCertificatePath,
+            Duration pollTimeout,
+            IggyOffsetSpec offsetSpec,
+            IggyStaleOffsetPolicy staleOffsetPolicy,
+            DecodingFormat<DeserializationSchema<RowData>> decodingFormat,
+            DataType physicalDataType) {
         this.host = host;
         this.port = port;
         this.username = username;
@@ -49,6 +64,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
         this.tlsCertificatePath = tlsCertificatePath;
         this.pollTimeout = pollTimeout;
         this.offsetSpec = offsetSpec;
+        this.staleOffsetPolicy = staleOffsetPolicy;
         this.decodingFormat = decodingFormat;
         this.physicalDataType = physicalDataType;
     }
@@ -75,6 +91,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
                 .setTopic(topic)
                 .setPollTimeout(pollTimeout)
                 .setStartingOffset(offsetSpec)
+                .setStaleOffsetPolicy(staleOffsetPolicy)
                 .setDeserializer(iggySchema);
 
         if (tls) {
@@ -91,7 +108,7 @@ public class IggyDynamicTableSource implements ScanTableSource {
     public DynamicTableSource copy() {
         return new IggyDynamicTableSource(
                 host, port, username, password, stream, topic,
-                tls, tlsCertificatePath, pollTimeout, offsetSpec, decodingFormat, physicalDataType);
+                tls, tlsCertificatePath, pollTimeout, offsetSpec, staleOffsetPolicy, decodingFormat, physicalDataType);
     }
 
     @Override

@@ -53,11 +53,13 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
     private final int batchSize;
     private final long consumerId;
     private final IggyDeserializationSchema<T> deserializer;
+    private final IggyStaleOffsetPolicy staleOffsetPolicy;
 
     // Accessed only from the Flink mailbox thread.
     private IggyPoller poller;
     private int connectFailures;
     private final Map<String, Integer> splitFailures = new HashMap<>();
+    private Counter staleOffsetResets;
     private ExecutorService pollExecutor;
     private final List<IggySplit> assignedSplits = new ArrayList<>();
     private CompletableFuture<Void> availability = new CompletableFuture<>();
@@ -75,7 +77,21 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
             long consumerId,
             IggyDeserializationSchema<T> deserializer) {
         this(context, connectionConfig, () -> IggyPoller.connect(connectionConfig),
-                pollBackoffMs, pollTimeoutMs, batchSize, consumerId, deserializer);
+                pollBackoffMs, pollTimeoutMs, batchSize, consumerId, deserializer,
+                IggyStaleOffsetPolicy.EARLIEST);
+    }
+
+    IggySourceReader(
+            SourceReaderContext context,
+            IggyConnectionConfig connectionConfig,
+            long pollBackoffMs,
+            long pollTimeoutMs,
+            int batchSize,
+            long consumerId,
+            IggyDeserializationSchema<T> deserializer,
+            IggyStaleOffsetPolicy staleOffsetPolicy) {
+        this(context, connectionConfig, () -> IggyPoller.connect(connectionConfig),
+                pollBackoffMs, pollTimeoutMs, batchSize, consumerId, deserializer, staleOffsetPolicy);
     }
 
     IggySourceReader(
@@ -86,7 +102,8 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
             long pollTimeoutMs,
             int batchSize,
             long consumerId,
-            IggyDeserializationSchema<T> deserializer) {
+            IggyDeserializationSchema<T> deserializer,
+            IggyStaleOffsetPolicy staleOffsetPolicy) {
         this.context = context;
         this.connectionConfig = connectionConfig;
         this.connector = connector;
@@ -95,6 +112,7 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
         this.batchSize = batchSize;
         this.consumerId = consumerId;
         this.deserializer = deserializer;
+        this.staleOffsetPolicy = staleOffsetPolicy;
     }
 
     @Override
@@ -103,6 +121,7 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
                 connectionConfig.host(), connectionConfig.port(), pollTimeoutMs);
         numRecordsIn = context.metricGroup().counter("numRecordsIn");
         numBytesIn = context.metricGroup().counter("numBytesIn");
+        staleOffsetResets = context.metricGroup().counter("staleOffsetResets");
         this.pollExecutor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "iggy-poll");
             t.setDaemon(true);
@@ -162,9 +181,29 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
                 Thread.currentThread().interrupt();
                 return InputStatus.NOTHING_AVAILABLE;
             }
-            splitFailures.remove(split.splitId());
-
-            if (!polled.messages().isEmpty()) {
+            if (polled.messages().isEmpty()) {
+                Long staleEnd;
+                try {
+                    staleEnd = staleEnd(current, split, polled);
+                } catch (InterruptedException e) {
+                    discardPoller();
+                    Thread.currentThread().interrupt();
+                    return InputStatus.NOTHING_AVAILABLE;
+                } catch (TimeoutException e) {
+                    return splitFailed(idx, split, "partition size lookup got no response within "
+                            + pollTimeoutMs + " ms", e);
+                } catch (ExecutionException e) {
+                    return splitFailed(idx, split, "partition size lookup failed", e.getCause());
+                }
+                splitFailures.remove(split.splitId());
+                if (staleEnd != null) {
+                    resetStaleOffset(split, staleEnd);
+                    nextSplitIndex = idx;  // poll this split again straight away
+                    return InputStatus.MORE_AVAILABLE;
+                }
+            } else {
+                splitFailures.remove(split.splitId());
+                split.setAwaitingConfiguredStart(false);
                 for (Message msg : polled.messages()) {
                     output.collect(deserializer.deserialize(msg.payload()));
                     split.setCurrentOffset(msg.header().offset().longValue() + 1);
@@ -210,6 +249,69 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
         }
     }
 
+    /**
+     * The partition's next offset if the split's offset is beyond it, else null.
+     *
+     * <p>That only happens after the topic was recreated or purged: Iggy answers a poll
+     * past the end with an empty batch, not an error. A reader at the tail asks for
+     * {@code currentOffset + 1}; anything higher is stale. An empty partition and one
+     * holding only offset 0 both report {@code currentOffset} 0, so those cases ask the
+     * server for the partition's message count. A split still sitting on a configured
+     * {@code specific-offset} is left alone until it has read something: starting beyond
+     * the end is what the user asked for.
+     */
+    private Long staleEnd(IggyPoller current, IggySplit split, PolledMessages polled)
+            throws TimeoutException, ExecutionException, InterruptedException {
+        if (polled.currentOffset() == null || split.isAwaitingConfiguredStart()) {
+            return null;
+        }
+        long last = polled.currentOffset().longValue();
+        long offset = split.getCurrentOffset();
+        if (offset <= 1 && last == 0) {
+            if (offset == 0) {
+                return null;
+            }
+            return messagesCount(current, split) == 0 ? 0L : null;  // offset 1: stale only if empty
+        }
+        if (offset <= last + 1) {
+            return null;
+        }
+        if (last > 0) {
+            return last + 1;
+        }
+        return messagesCount(current, split) == 0 ? 0L : 1L;  // currentOffset 0: empty, or just offset 0
+    }
+
+    private long messagesCount(IggyPoller current, IggySplit split)
+            throws TimeoutException, ExecutionException, InterruptedException {
+        Future<Long> count = pollExecutor.submit(() -> current.messagesCount(split));
+        try {
+            return count.get(pollTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException | ExecutionException | InterruptedException e) {
+            count.cancel(true);
+            throw e;
+        }
+    }
+
+    private void resetStaleOffset(IggySplit split, long end) throws IOException {
+        String what = String.format("split %s is at offset %d but its partition ends at offset %d: "
+                + "the topic was recreated or purged after that offset was checkpointed",
+                split.splitId(), split.getCurrentOffset(), end);
+        switch (staleOffsetPolicy) {
+            case FAIL -> throw new IOException(what + ". Resubmit the job without its checkpoint, "
+                    + "or set 'stale-offset' to 'earliest' or 'latest'.");
+            case EARLIEST -> {
+                LOG.warn("Iggy {}; re-reading the partition from offset 0", what);
+                split.setCurrentOffset(0);
+            }
+            case LATEST -> {
+                LOG.warn("Iggy {}; skipping to offset {}", what, end);
+                split.setCurrentOffset(end);
+            }
+        }
+        staleOffsetResets.inc();
+    }
+
     private InputStatus backOff() {
         availability = new CompletableFuture<>();
         CompletableFuture.delayedExecutor(pollBackoffMs, TimeUnit.MILLISECONDS)
@@ -230,7 +332,7 @@ public class IggySourceReader<T> implements SourceReader<T, IggySplit> {
     public List<IggySplit> snapshotState(long checkpointId) {
         return assignedSplits.stream()
                 .map(s -> new IggySplit(s.getStreamId(), s.getTopicId(),
-                        s.getPartitionId(), s.getCurrentOffset()))
+                        s.getPartitionId(), s.getCurrentOffset(), s.isAwaitingConfiguredStart()))
                 .toList();
     }
 

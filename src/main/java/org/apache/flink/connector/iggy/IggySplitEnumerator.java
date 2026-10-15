@@ -150,7 +150,8 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
                 // Splits restored from checkpoint carry their persisted offsets and are not
                 // re-initialised here. See the restore constructor.
                 long startOffset = resolveStartingOffset(i);
-                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset));
+                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset,
+                        offsetSpec.getPolicy() == IggyOffsetPolicy.SPECIFIC_OFFSET));
             }
         }
     }
@@ -170,7 +171,8 @@ public class IggySplitEnumerator implements SplitEnumerator<IggySplit, IggyEnume
         for (var i = 0; i < currentCount; i++) {
             if (knownPartitions.add(i)) {
                 long startOffset = resolveStartingOffset(i);
-                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset));
+                unassignedSplits.add(new IggySplit(streamId, topicId, i, startOffset,
+                        offsetSpec.getPolicy() == IggyOffsetPolicy.SPECIFIC_OFFSET));
                 added++;
             }
         }

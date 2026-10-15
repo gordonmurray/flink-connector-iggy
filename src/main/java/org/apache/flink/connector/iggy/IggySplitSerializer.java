@@ -7,6 +7,11 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Serializer for {@link IggySplit}.
+ *
+ * <p>Format: [streamLen:int][stream][topicLen:int][topic][partition:int][offset:long][awaiting:byte].
+ * The trailing awaiting-configured-start byte was added after version 1 shipped. It is
+ * optional on read, so checkpoints written without it restore with the flag false, and
+ * readers that predate it ignore it. The version stays 1 for that reason.
  */
 public class IggySplitSerializer implements SimpleVersionedSerializer<IggySplit> {
 
@@ -22,7 +27,7 @@ public class IggySplitSerializer implements SimpleVersionedSerializer<IggySplit>
         byte[] streamBytes = split.getStreamId().getBytes(StandardCharsets.UTF_8);
         byte[] topicBytes = split.getTopicId().getBytes(StandardCharsets.UTF_8);
 
-        int size = 4 + streamBytes.length + 4 + topicBytes.length + 4 + 8;
+        int size = 4 + streamBytes.length + 4 + topicBytes.length + 4 + 8 + 1;
         ByteBuffer buffer = ByteBuffer.allocate(size);
 
         buffer.putInt(streamBytes.length);
@@ -31,6 +36,7 @@ public class IggySplitSerializer implements SimpleVersionedSerializer<IggySplit>
         buffer.put(topicBytes);
         buffer.putInt(split.getPartitionId());
         buffer.putLong(split.getCurrentOffset());
+        buffer.put((byte) (split.isAwaitingConfiguredStart() ? 1 : 0));
 
         return buffer.array();
     }
@@ -55,7 +61,8 @@ public class IggySplitSerializer implements SimpleVersionedSerializer<IggySplit>
 
         int partitionId = buffer.getInt();
         long startingOffset = buffer.getLong();
+        boolean awaitingConfiguredStart = buffer.hasRemaining() && buffer.get() != 0;
 
-        return new IggySplit(streamId, topicId, partitionId, startingOffset);
+        return new IggySplit(streamId, topicId, partitionId, startingOffset, awaitingConfiguredStart);
     }
 }

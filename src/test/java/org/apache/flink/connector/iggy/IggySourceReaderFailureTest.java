@@ -91,7 +91,8 @@ class IggySourceReaderFailureTest {
     static IggySourceReader<byte[]> reader(Supplier<IggyPoller> connector) {
         var config = new IggyConnectionConfig("unused", 0, "u", "p", false, null);
         var reader = new IggySourceReader<byte[]>(new IggySourceReaderTest.StubSourceReaderContext(),
-                config, connector, 1L, TIMEOUT_MS, 10, 1L, payload -> payload);
+                config, connector, 1L, TIMEOUT_MS, 10, 1L, payload -> payload,
+                IggyStaleOffsetPolicy.EARLIEST);
         reader.start();
         reader.addSplits(Collections.singletonList(new IggySplit("s", "t", 0, 0)));
         return reader;
