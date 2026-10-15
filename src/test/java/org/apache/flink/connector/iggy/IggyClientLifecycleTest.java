@@ -45,9 +45,14 @@ class IggyClientLifecycleTest {
     }
 
     @Test
-    void closeQuietlyDisposesTheSharedConnectionOnce() {
+    void closingAClientTwiceIsSafeAndReleasesItsConnection() throws Exception {
+        var admin = new IggyConnectionConfig(HOST, PORT, "iggy", "iggy", false, null).connect();
+        int before = admin.system().getClients().size();
         var client = new IggyConnectionConfig(HOST, PORT, "iggy", "iggy", false, null).connect();
         assertEquals(1, IggyClients.closeQuietly(client));
-        assertEquals(0, IggyClients.closeQuietly(client), "already disposed");
+        IggyClients.closeQuietly(client);  // 0 with the 0.7 SDK (already disposed); close() again with 0.8
+        Thread.sleep(500);
+        assertEquals(before, admin.system().getClients().size());
+        IggyClients.closeQuietly(admin);
     }
 }
